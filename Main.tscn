@@ -1,6 +1,7 @@
-[gd_scene load_steps=6 format=3 uid="uid://dubcn2vnrobpo"]
+[gd_scene load_steps=7 format=3 uid="uid://dubcn2vnrobpo"]
 
 [ext_resource type="PackedScene" uid="uid://hqv53fdbuth" path="res://Scenes/Stairs.tscn" id="1_glv2v"]
+[ext_resource type="PackedScene" uid="uid://d0gd66hcarbth" path="res://Scenes/Player/Player.tscn" id="2_uu6xs"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_rxg2q"]
 sky_horizon_color = Color(0.662243, 0.671743, 0.686743, 1)
@@ -33,7 +34,7 @@ size = Vector3(20, 0.1, 20)
 material = SubResource("StandardMaterial3D_r0du0")
 
 [node name="CrouchObstacle" type="CSGBox3D" parent="Platform"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5, 1.6, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5, 1.8, 0)
 size = Vector3(4, 1, 1)
 
 [node name="JumpObstacle" type="CSGBox3D" parent="Platform"]
@@ -41,7 +42,19 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 0.5, 0)
 size = Vector3(4, 1, 1)
 
 [node name="StepObstacle" type="CSGBox3D" parent="Platform"]
-transform = Transform3D(1, 0, 0, 0, 0.1, 0, 0, 0, 1, 0, 0.1, 5)
+transform = Transform3D(1, 0, 0, 0, 0.1, 0, 0, 0, 1, 0, 0.15, 5)
+size = Vector3(1, 2, 1)
 
 [node name="Stairs" parent="." instance=ExtResource("1_glv2v")]
-transform = Transform3D(-1, 0, 8.74228e-08, 0, 1, 0, -8.74228e-08, 0, -1, 3, 0, 4.8)
+transform = Transform3D(-1, 0, 8.74228e-08, 0, 1, 0, -8.74228e-08, 0, -1, 3, 0.0564854, 4.8)
+
+[node name="ProtoController" parent="." instance=ExtResource("2_uu6xs")]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0.0527039, 0)
+can_sprint = true
+can_crouch = true
+can_freefly = true
+enable_bobbing = true
+input_left = "left"
+input_right = "right"
+input_forward = "forward"
+input_back = "back"
