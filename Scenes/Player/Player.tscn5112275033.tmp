@@ -71,11 +71,11 @@ grow_horizontal = 2
 grow_vertical = 2
 texture = ExtResource("3_5hfox")
 
-[node name="StairsAheadRayCast3D" type="RayCast3D" parent="."]
+[node name="StairsAheadRaycast3D" type="RayCast3D" parent="."]
 unique_name_in_owner = true
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.560999, -0.7)
 target_position = Vector3(0, -0.55, 0)
 
-[node name="StairsBelowRayCast3D" type="RayCast3D" parent="."]
+[node name="StairsBelowRaycast3D" type="RayCast3D" parent="."]
 unique_name_in_owner = true
 target_position = Vector3(0, -0.75, 0)

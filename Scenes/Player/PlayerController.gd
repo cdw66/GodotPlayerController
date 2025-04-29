@@ -1,105 +1,106 @@
-# ProtoController v1.0 by Brackeys
-# CC0 License
-# Intended for rapid prototyping of first-person games.
-# Happy prototyping!
+## ProtoController v1.0 by Brackeys
+## CC0 License
+## Intended for rapid prototyping of first-person games.
+## Happy prototyping!
 
 extends CharacterBody3D
 
-## Can we move around?
+# -------------------------------------------------------------
+# -- EXPORTS: Tuning Variables
+# -------------------------------------------------------------
+
 @export var can_move : bool = true
-## Are we affected by gravity?
 @export var has_gravity : bool = true
-## Can we press to jump?
 @export var can_jump : bool = true
-## Can we hold to run?
 @export var can_sprint : bool = false
-## Can we hold to crouch?
 @export var can_crouch : bool = false
-## Can we press to enter freefly mode (noclip)?
 @export var can_freefly : bool = false
 
 @export_group("View Bob")
-## Enable or disable head bobbing
-@export var enable_bobbing : bool  = false
-## How fast the head bobs (cycles per second of movement)
+@export var enable_bobbing : bool = false
 @export var bob_frequency : float = 4.0
-## How tall each bob is
+@export var crouch_bob_frequency : float = 3.0
 @export var bob_amplitude : float = 0.2
-# Internal timer for head bobbing
-var bob_timer : float = 0.0
 
 @export_group("Speeds")
-## Look around rotation speed.
 @export var look_speed : float = 0.002
-## Normal speed.
 @export var base_speed : float = 7.0
-## Speed of jump.
 @export var jump_velocity : float = 5.5
-## How fast do we run?
 @export var sprint_speed : float = 10.0
-## How fast do we move when crouched?
 @export var crouch_speed: float = 4.0
-## How fast do we freefly?
 @export var freefly_speed : float = 25.0
 
 @export_group("Input Actions")
-## Name of Input Action to move Left.
 @export var input_left : String = "ui_left"
-## Name of Input Action to move Right.
 @export var input_right : String = "ui_right"
-## Name of Input Action to move Forward.
 @export var input_forward : String = "ui_up"
-## Name of Input Action to move Backward.
 @export var input_back : String = "ui_down"
-## Name of Input Action to Jump.
 @export var input_jump : String = "ui_accept"
-## Name of Input Action to Sprint.
 @export var input_sprint : String = "sprint"
-## Name of Input Action to toggle freefly mode.
 @export var input_freefly : String = "freefly"
-## Name of Input Action to crouch.
 @export var input_crouch : String = "crouch"
 
 @export_group("Crouch")
-## How far to lower the camera when crouching
 @export var crouch_height : float = 0.8
-## How quickly to transition in/out of crouch
 @export var crouch_transition_speed : float = 6.0
 
 @export_group("Gravity")
-## How quickly the player descends when falling
 @export var fall_multiplier := 2.0
 
+# -------------------------------------------------------------
+# -- INTERNAL STATE
+# -------------------------------------------------------------
+
+# Mouse and look
 var mouse_captured : bool = false
 var look_rotation : Vector2
+
+# Movement
 var move_speed : float = 0.0
 var freeflying : bool = false
 var is_crouching : bool = false
-var default_head_pos : Vector3
-var crouch_head_pos  : Vector3
 
-## IMPORTANT REFERENCES
+# Head bobbing
+var bob_timer : float = 0.0
+
+# Head positions
+var default_head_pos : Vector3
+var crouch_head_pos : Vector3
+
+# Step snapping
+const MAX_STEP_HEIGHT = 0.5
+var _snapped_to_stairs_last_frame := false
+var _last_frame_was_on_floor = -INF
+
+# Standing shape for crouch checks
+var stand_shape: CapsuleShape3D
+var stand_query: PhysicsShapeQueryParameters3D
+
+# -------------------------------------------------------------
+# -- NODES (Cached References)
+# -------------------------------------------------------------
+
 @onready var head: Node3D = $Head
 @onready var standing_collider: CollisionShape3D = $StandingCollider
 @onready var crouch_collider: CollisionShape3D = $CrouchCollider
 
-# variables for crouching and standing
-var stand_shape: CapsuleShape3D
-var stand_query: PhysicsShapeQueryParameters3D
+# -------------------------------------------------------------
+# -- READY
+# -------------------------------------------------------------
 
 func _ready() -> void:
 	check_input_mappings()
+	
+	# Initialize look rotation
 	look_rotation.y = rotation.y
 	look_rotation.x = head.rotation.x
-
-	# Head positions for standing and crouching states
-	default_head_pos = head.position
-	crouch_head_pos  = default_head_pos + Vector3(0, -crouch_height, 0)
 	
-	# Duplicate the standing collider’s shape for detecting collisions
-	stand_shape = (standing_collider.shape as CapsuleShape3D).duplicate()
+	# Setup head positions
+	default_head_pos = head.position
+	crouch_head_pos = default_head_pos + Vector3(0, -crouch_height, 0)
 
-	# Prepare a reusable query parameters object for checking if the player can stand
+	# Setup standing collider duplicate for crouch standing test
+	stand_shape = (standing_collider.shape as CapsuleShape3D).duplicate()
 	stand_query = PhysicsShapeQueryParameters3D.new()
 	stand_query.shape = stand_shape
 	stand_query.collision_mask = collision_layer
@@ -107,24 +108,18 @@ func _ready() -> void:
 	stand_query.collide_with_bodies = true
 	stand_query.exclude = [self]
 
-
-# Function for checking if the character can stand
-func can_stand() -> bool:
-	# Keep the query transform synced to where the stand collider *would* be
-	stand_query.transform = standing_collider.global_transform
-	# Check if character's standing mesh is intersecting with any object
-	# Any intersection means the character can't stand
-	var hits = get_world_3d().direct_space_state.intersect_shape(stand_query, 1)
-	return hits.size() == 0
+# -------------------------------------------------------------
+# -- INPUT HANDLING
+# -------------------------------------------------------------
 
 func _unhandled_input(event: InputEvent) -> void:
-	# Mouse capturing
+	# Capture/release mouse
 	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 		capture_mouse()
 	if Input.is_key_pressed(KEY_ESCAPE):
 		release_mouse()
 	
-	# Look around
+	# Mouse look
 	if mouse_captured and event is InputEventMouseMotion:
 		rotate_look(event.relative)
 	
@@ -135,57 +130,66 @@ func _unhandled_input(event: InputEvent) -> void:
 		else:
 			disable_freefly()
 
+# -------------------------------------------------------------
+# -- PHYSICS PROCESS
+# -------------------------------------------------------------
 
 func _physics_process(delta: float) -> void:
-	# If freeflying, handle freefly and nothing else
+	if is_on_floor(): 
+		_last_frame_was_on_floor = Engine.get_physics_frames()
+
 	if can_freefly and freeflying:
-		var input_dir := Input.get_vector(input_left, input_right, input_forward, input_back)
-		var motion := (head.global_basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
-		motion *= freefly_speed * delta
-		move_and_collide(motion)
+		handle_freefly_movement(delta)
 		return
+
+	handle_crouching()
+	handle_gravity(delta)
+	handle_jumping()
+	handle_movement()
+
+	handle_head_bobbing(delta)
 	
-	# Check if the player is holding crouch
+	if not _snap_up_stairs_check(delta):
+		move_and_slide()
+		_snap_down_to_stairs_check()
+
+# -------------------------------------------------------------
+# -- MOVEMENT HELPERS
+# -------------------------------------------------------------
+
+func handle_freefly_movement(delta: float) -> void:
+	var input_dir := Input.get_vector(input_left, input_right, input_forward, input_back)
+	var motion := (head.global_basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
+	motion *= freefly_speed * delta
+	move_and_collide(motion)
+
+func handle_crouching() -> void:
 	var holding_crouch = can_crouch and Input.is_action_pressed(input_crouch)
-	
-	# Check if the player's character should be crouching
 	var should_crouch = holding_crouch or (is_crouching and not can_stand())
 	
-	# Switch collision models when character is crouched/standing
 	if should_crouch != is_crouching:
 		is_crouching = should_crouch
 		standing_collider.disabled = is_crouching
 		crouch_collider.disabled = not is_crouching
 
-	# Apply gravity to velocity
-	if has_gravity:
-		if not is_on_floor():
-			# Apply base gravity
-			velocity += get_gravity() * delta
-			
-			# Apply additional acceleration when falling
-			#if velocity.y < 0:
-				#velocity += get_gravity() * (fall_multiplier - 1) * delta
+func handle_gravity(delta: float) -> void:
+	if has_gravity and not (is_on_floor() or _snapped_to_stairs_last_frame):
+		velocity += get_gravity() * delta
+		# Uncomment if you want stronger gravity when falling:
+		#if velocity.y < 0:
+		#	velocity += get_gravity() * (fall_multiplier - 1) * delta
 
-	# Apply jumping
-	if can_jump:
-		if Input.is_action_just_pressed(input_jump) and not is_crouching and is_on_floor():
-			velocity.y = jump_velocity
+func handle_jumping() -> void:
+	if can_jump and Input.is_action_just_pressed(input_jump) and not is_crouching and (is_on_floor() or _snapped_to_stairs_last_frame):
+		velocity.y = jump_velocity
 
-	# Modify speed based on crouching
-	if is_crouching:
-		move_speed = crouch_speed
-	# Modify speed based on sprinting
-	elif can_sprint and Input.is_action_pressed(input_sprint):
-		move_speed = sprint_speed
-	else:
-		move_speed = base_speed
-
-	# Apply desired movement to velocity
+func handle_movement() -> void:
 	if can_move:
 		var input_dir := Input.get_vector(input_left, input_right, input_forward, input_back)
 		var move_dir := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
+
 		if move_dir:
+			move_speed = crouch_speed if is_crouching else (sprint_speed if (Input.is_action_pressed(input_sprint) and can_sprint)else base_speed)
 			velocity.x = move_dir.x * move_speed
 			velocity.z = move_dir.z * move_speed
 		else:
@@ -195,44 +199,41 @@ func _physics_process(delta: float) -> void:
 		velocity.x = 0
 		velocity.y = 0
 
-	# Logic for character head bobbing
+func handle_head_bobbing(delta: float) -> void:
 	var base_pos : Vector3 = crouch_head_pos if is_crouching else default_head_pos
-	
 	var bob_offset : float = 0.0
-	if enable_bobbing and is_on_floor():
-		# Only bob if character is moving forward/back/strafe
+	
+	if enable_bobbing and (is_on_floor() or _snapped_to_stairs_last_frame):
 		var horiz_speed = Vector2(velocity.x, velocity.z).length()
 		if horiz_speed > 0.1:
-			# Advance timer while player is moving (frequency cycles per second)
-			bob_timer += delta * bob_frequency
-			# Calculate head bob offset smoothly with sin function
+			bob_timer += delta * (bob_frequency if not is_crouching else crouch_bob_frequency)
 			bob_offset = sin(bob_timer * TAU) * bob_amplitude
 		else:
-			# Reset timer when you stop
 			bob_timer = 0.0
 	else:
 		bob_timer = 0.0
 	
-	# Calculate & apply head target position
-	var target_pos : Vector3 = base_pos + Vector3(0, bob_offset, 0) # Apply head bob position
+	var target_pos : Vector3 = base_pos + Vector3(0, bob_offset, 0)
 	head.position = head.position.lerp(target_pos, crouch_transition_speed * delta)
-	
-	# Use velocity to actually move
-	move_and_slide()
 
+# -------------------------------------------------------------
+# -- ROTATION
+# -------------------------------------------------------------
 
-## Rotate us to look around.
-## Base of controller rotates around y (left/right). Head rotates around x (up/down).
-## Modifies look_rotation based on rot_input, then resets basis and rotates by look_rotation.
-func rotate_look(rot_input : Vector2):
+func rotate_look(rot_input: Vector2) -> void:
 	look_rotation.x -= rot_input.y * look_speed
 	look_rotation.x = clamp(look_rotation.x, deg_to_rad(-85), deg_to_rad(85))
 	look_rotation.y -= rot_input.x * look_speed
+	
 	transform.basis = Basis()
 	rotate_y(look_rotation.y)
+	
 	head.transform.basis = Basis()
 	head.rotate_x(look_rotation.x)
 
+# -------------------------------------------------------------
+# -- FREEFLY MODE
+# -------------------------------------------------------------
 
 func enable_freefly():
 	standing_collider.disabled = true
@@ -240,25 +241,82 @@ func enable_freefly():
 	freeflying = true
 	velocity = Vector3.ZERO
 
-
 func disable_freefly():
 	standing_collider.disabled = false
 	crouch_collider.disabled = false
 	freeflying = false
 
+# -------------------------------------------------------------
+# -- MOUSE CAPTURE
+# -------------------------------------------------------------
 
 func capture_mouse():
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	mouse_captured = true
 
-
 func release_mouse():
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	mouse_captured = false
 
+# -------------------------------------------------------------
+# -- CROUCH STAND CHECK
+# -------------------------------------------------------------
 
-## Checks if some Input Actions haven't been created.
-## Disables functionality accordingly.
+func can_stand() -> bool:
+	stand_query.transform = standing_collider.global_transform
+	var hits = get_world_3d().direct_space_state.intersect_shape(stand_query, 1)
+	return hits.size() == 0
+
+# -------------------------------------------------------------
+# -- STEP HANDLING
+# -------------------------------------------------------------
+
+func _snap_down_to_stairs_check() -> void:
+	var did_snap := false
+	%StairsBelowRayCast3D.force_raycast_update()
+	var floor_below = %StairsBelowRayCast3D.is_colliding() and not is_surface_too_steep(%StairsBelowRayCast3D.get_collision_normal())
+	var was_on_floor_last_frame = Engine.get_physics_frames() == _last_frame_was_on_floor
+	
+	if not is_on_floor() and velocity.y <= 0 and (was_on_floor_last_frame or _snapped_to_stairs_last_frame) and floor_below:
+		var body_test_result = KinematicCollision3D.new()
+		if self.test_move(self.global_transform, Vector3(0, -MAX_STEP_HEIGHT, 0), body_test_result):
+			self.position.y += body_test_result.get_travel().y
+			apply_floor_snap()
+			did_snap = true
+	
+	_snapped_to_stairs_last_frame = did_snap
+
+func _snap_up_stairs_check(delta: float) -> bool:
+	if not is_on_floor() and not _snapped_to_stairs_last_frame: return false
+	if velocity.y > 0 or (velocity * Vector3(1,0,1)).length() == 0: return false
+	
+	var expected_move_motion = velocity * Vector3(1,0,1) * delta
+	var step_pos_with_clearance = global_transform.translated(expected_move_motion + Vector3(0, MAX_STEP_HEIGHT * 2, 0))
+	var down_check_result = KinematicCollision3D.new()
+
+	if self.test_move(step_pos_with_clearance, Vector3(0, -MAX_STEP_HEIGHT * 2, 0), down_check_result) and (down_check_result.get_collider().is_class("StaticBody3D") or down_check_result.get_collider().is_class("CSGShape3D")):
+		var step_height = ((step_pos_with_clearance.origin + down_check_result.get_travel()) - global_position).y
+		if step_height > MAX_STEP_HEIGHT or step_height <= 0.01 or (down_check_result.get_position() - global_position).y > MAX_STEP_HEIGHT:
+			return false
+		
+		%StairsAheadRayCast3D.global_position = down_check_result.get_position() + Vector3(0, MAX_STEP_HEIGHT, 0) + expected_move_motion.normalized() * 0.1
+		%StairsAheadRayCast3D.force_raycast_update()
+
+		if %StairsAheadRayCast3D.is_colliding() and not is_surface_too_steep(%StairsAheadRayCast3D.get_collision_normal()):
+			global_position = step_pos_with_clearance.origin + down_check_result.get_travel()
+			apply_floor_snap()
+			_snapped_to_stairs_last_frame = true
+			return true
+
+	return false
+
+func is_surface_too_steep(normal: Vector3) -> bool:
+	return normal.angle_to(Vector3.UP) > self.floor_max_angle
+
+# -------------------------------------------------------------
+# -- INPUT MAPPING VALIDATION
+# -------------------------------------------------------------
+
 func check_input_mappings():
 	if can_move and not InputMap.has_action(input_left):
 		push_error("Movement disabled. No InputAction found for input_left: " + input_left)
@@ -281,7 +339,6 @@ func check_input_mappings():
 	if can_freefly and not InputMap.has_action(input_freefly):
 		push_error("Freefly disabled. No InputAction found for input_freefly: " + input_freefly)
 		can_freefly = false
-	# New: verify crouch action exists
 	if can_crouch and not InputMap.has_action(input_crouch):
 		push_error("Crouch disabled. No InputAction found for input_crouch: " + input_crouch)
 		can_crouch = false
